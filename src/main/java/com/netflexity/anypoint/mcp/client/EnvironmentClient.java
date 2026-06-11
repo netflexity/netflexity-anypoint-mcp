@@ -1,13 +1,12 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.Environment;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,16 +14,17 @@ import java.util.List;
 @Component
 public class EnvironmentClient extends AnypointBaseClient {
 
-    public EnvironmentClient(WebClient webClient, AnypointAuthClient authClient,
-                              AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public EnvironmentClient(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
-    @Cacheable(value = "environments", key = "#root.target.orgId()")
+    @Cacheable(value = "environments", key = "#root.target.context().getOrgId()")
     public List<Environment> listEnvironments() {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/accounts/api/organizations/{orgId}/environments", orgId())
+                        .uri(ctx.getBaseUrl() + "/accounts/api/organizations/{orgId}/environments",
+                                ctx.getOrgId())
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))

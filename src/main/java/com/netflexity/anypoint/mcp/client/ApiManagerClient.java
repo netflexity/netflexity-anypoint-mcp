@@ -1,8 +1,8 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.ManagedApi;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -10,21 +10,20 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.StreamSupport;
 
 @Component
 public class ApiManagerClient extends AnypointBaseClient {
 
-    public ApiManagerClient(WebClient webClient, AnypointAuthClient authClient,
-                             AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public ApiManagerClient(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
     public List<ManagedApi> listApis(String envId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis",
-                                orgId(), envId)
+                        .uri(ctx.getBaseUrl() + "/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis",
+                                ctx.getOrgId(), envId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -39,10 +38,11 @@ public class ApiManagerClient extends AnypointBaseClient {
                 "configurationData", configurationData != null ? configurationData : Map.of(),
                 "pointcutData", List.of()
         );
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.post()
-                        .uri("/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis/{apiId}/policies",
-                                orgId(), envId, apiId)
+                        .uri(ctx.getBaseUrl() + "/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis/{apiId}/policies",
+                                ctx.getOrgId(), envId, apiId)
                         .header("Authorization", token)
                         .bodyValue(body)
                         .retrieve()
@@ -51,10 +51,11 @@ public class ApiManagerClient extends AnypointBaseClient {
     }
 
     public String removePolicy(String envId, String apiId, String policyId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.delete()
-                        .uri("/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis/{apiId}/policies/{policyId}",
-                                orgId(), envId, apiId, policyId)
+                        .uri(ctx.getBaseUrl() + "/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis/{apiId}/policies/{policyId}",
+                                ctx.getOrgId(), envId, apiId, policyId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(Void.class)
@@ -67,8 +68,8 @@ public class ApiManagerClient extends AnypointBaseClient {
         JsonNode assets = root.path("assets");
         if (!assets.isArray()) assets = root;
         for (JsonNode asset : assets) {
-            JsonNode apis_ = asset.path("apis");
-            Iterable<JsonNode> apiNodes = apis_.isArray() ? apis_ : List.of(asset);
+            JsonNode apiNodes_ = asset.path("apis");
+            Iterable<JsonNode> apiNodes = apiNodes_.isArray() ? apiNodes_ : List.of(asset);
             for (JsonNode n : apiNodes) {
                 List<String> policies = new ArrayList<>();
                 JsonNode pol = n.path("policies");

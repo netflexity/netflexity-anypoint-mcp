@@ -1,8 +1,8 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.MqDestination;
 import com.netflexity.anypoint.mcp.model.MqQueueConfig;
 import org.springframework.stereotype.Component;
@@ -17,17 +17,17 @@ public class AnypointMqClient extends AnypointBaseClient {
 
     private static final String DEFAULT_REGION = "us-east-1";
 
-    public AnypointMqClient(WebClient webClient, AnypointAuthClient authClient,
-                             AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public AnypointMqClient(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
     public List<MqDestination> listDestinations(String envId, String region) {
         String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations",
-                                orgId(), envId, effectiveRegion)
+                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations",
+                                ctx.getOrgId(), envId, effectiveRegion)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -36,10 +36,11 @@ public class AnypointMqClient extends AnypointBaseClient {
     }
 
     public List<String> listRegions(String envId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions",
-                                orgId(), envId)
+                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions",
+                                ctx.getOrgId(), envId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -56,15 +57,13 @@ public class AnypointMqClient extends AnypointBaseClient {
     public String sendMessage(String envId, String region, String destination, String messageBody) {
         String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
         List<Map<String, Object>> payload = List.of(
-                Map.of(
-                        "properties", Map.of("contentType", "application/json"),
-                        "body", messageBody
-                )
+                Map.of("properties", Map.of("contentType", "application/json"), "body", messageBody)
         );
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.post()
-                        .uri("/mq/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
-                                orgId(), envId, effectiveRegion, destination)
+                        .uri(ctx.getBaseUrl() + "/mq/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
+                                ctx.getOrgId(), envId, effectiveRegion, destination)
                         .header("Authorization", token)
                         .bodyValue(payload)
                         .retrieve()
@@ -76,10 +75,11 @@ public class AnypointMqClient extends AnypointBaseClient {
 
     public String purgeQueue(String envId, String region, String destination) {
         String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.delete()
-                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
-                                orgId(), envId, effectiveRegion, destination)
+                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
+                                ctx.getOrgId(), envId, effectiveRegion, destination)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(Void.class)
@@ -97,10 +97,11 @@ public class AnypointMqClient extends AnypointBaseClient {
                 "fifo", fifo,
                 "encrypted", encrypted
         );
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.put()
-                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}",
-                                orgId(), envId, effectiveRegion, destination)
+                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}",
+                                ctx.getOrgId(), envId, effectiveRegion, destination)
                         .header("Authorization", token)
                         .bodyValue(body)
                         .retrieve()
@@ -118,10 +119,11 @@ public class AnypointMqClient extends AnypointBaseClient {
 
     public String deleteQueue(String envId, String region, String destination) {
         String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.delete()
-                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}",
-                                orgId(), envId, effectiveRegion, destination)
+                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}",
+                                ctx.getOrgId(), envId, effectiveRegion, destination)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(Void.class)

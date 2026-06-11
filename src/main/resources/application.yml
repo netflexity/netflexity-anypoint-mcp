@@ -14,18 +14,6 @@ spring:
         name: anypoint-mcp
         version: 1.0.0
 
-anypoint:
-  base-url: ${ANYPOINT_BASE_URL:https://anypoint.mulesoft.com}
-  organization-id: ${ANYPOINT_ORG_ID}
-  default-environment: ${ANYPOINT_DEFAULT_ENV:Production}
-  auth:
-    client-id: ${ANYPOINT_CLIENT_ID}
-    client-secret: ${ANYPOINT_CLIENT_SECRET}
-  http:
-    connect-timeout-seconds: 30
-    read-timeout-seconds: 60
-    max-retries: 3
-
 admin:
   key: ${ADMIN_KEY:}
 

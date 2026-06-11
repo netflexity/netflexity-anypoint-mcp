@@ -1,8 +1,8 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.CloudHub2App;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -11,23 +11,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * CloudHub 2.0 / Runtime Fabric Deployments API.
- * Endpoint: /amc/application-manager/api/v2
- */
 @Component
 public class CloudHub2Client extends AnypointBaseClient {
 
-    public CloudHub2Client(WebClient webClient, AnypointAuthClient authClient,
-                            AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public CloudHub2Client(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
     public List<CloudHub2App> listApplications(String envId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments",
-                                orgId(), envId)
+                        .uri(ctx.getBaseUrl() + "/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments",
+                                ctx.getOrgId(), envId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -36,10 +32,11 @@ public class CloudHub2Client extends AnypointBaseClient {
     }
 
     public CloudHub2App getApplication(String envId, String deploymentId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments/{id}",
-                                orgId(), envId, deploymentId)
+                        .uri(ctx.getBaseUrl() + "/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments/{id}",
+                                ctx.getOrgId(), envId, deploymentId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -48,10 +45,11 @@ public class CloudHub2Client extends AnypointBaseClient {
     }
 
     public String scaleReplicas(String envId, String deploymentId, int replicas) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.patch()
-                        .uri("/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments/{id}",
-                                orgId(), envId, deploymentId)
+                        .uri(ctx.getBaseUrl() + "/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments/{id}",
+                                ctx.getOrgId(), envId, deploymentId)
                         .header("Authorization", token)
                         .bodyValue(Map.of("target", Map.of("replicas", replicas)))
                         .retrieve()
@@ -61,18 +59,17 @@ public class CloudHub2Client extends AnypointBaseClient {
     }
 
     public String restartApplication(String envId, String deploymentId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.post()
-                        .uri("/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments/{id}/restart",
-                                orgId(), envId, deploymentId)
+                        .uri(ctx.getBaseUrl() + "/amc/application-manager/api/v2/organizations/{orgId}/environments/{envId}/deployments/{id}/restart",
+                                ctx.getOrgId(), envId, deploymentId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(String.class)
                         .onErrorReturn("Restart initiated"))
                 .block();
     }
-
-    // ── Parsers ──────────────────────────────────────────────────────────────
 
     private List<CloudHub2App> parseApplications(JsonNode root) {
         List<CloudHub2App> apps = new ArrayList<>();

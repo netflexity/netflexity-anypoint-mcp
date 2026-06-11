@@ -2,7 +2,10 @@ package com.netflexity.anypoint.mcp.license;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.netflexity.anypoint.mcp.context.AnypointContextHolder;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -27,7 +30,8 @@ public class ApiKeyFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String apiKey = exchange.getRequest().getHeaders().getFirst("X-API-Key");
+        HttpHeaders headers = exchange.getRequest().getHeaders();
+        String apiKey = headers.getFirst("X-API-Key");
 
         try {
             licenseService.checkRateLimit(apiKey);
@@ -37,13 +41,19 @@ public class ApiKeyFilter implements WebFilter {
             return writeError(exchange, HttpStatus.FORBIDDEN, "Pro license required");
         }
 
-        // Store resolved API key downstream via a mutated request header
-        String resolvedKey = (apiKey != null) ? apiKey : "";
-        ServerWebExchange mutatedExchange = exchange.mutate()
-                .request(r -> r.header("X-Resolved-API-Key", resolvedKey))
-                .build();
+        AnypointRequestContext anypointCtx = AnypointRequestContext.fromHeaders(headers);
 
-        return chain.filter(mutatedExchange);
+        String path = exchange.getRequest().getPath().value();
+        if (path.startsWith("/mcp") && !anypointCtx.isValid()) {
+            return writeError(exchange, HttpStatus.BAD_REQUEST,
+                    "Missing required headers: X-Anypoint-Client-Id, X-Anypoint-Client-Secret, X-Anypoint-Org-Id");
+        }
+
+        AnypointContextHolder.set(anypointCtx);
+
+        return chain.filter(exchange)
+                .contextWrite(ctx -> ctx.put(AnypointRequestContext.class, anypointCtx))
+                .doFinally(s -> AnypointContextHolder.clear());
     }
 
     private Mono<Void> writeError(ServerWebExchange exchange, HttpStatus status, String message) {

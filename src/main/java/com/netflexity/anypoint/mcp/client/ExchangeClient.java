@@ -1,12 +1,13 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.ExchangeAsset;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,25 +15,27 @@ import java.util.List;
 @Component
 public class ExchangeClient extends AnypointBaseClient {
 
-    public ExchangeClient(WebClient webClient, AnypointAuthClient authClient,
-                           AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public ExchangeClient(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
-    @Cacheable(value = "exchangeSearch", key = "#query + '-' + #types")
+    @Cacheable(value = "exchangeSearch",
+               key = "#root.target.context().getOrgId() + '-' + #query + '-' + #types")
     public List<ExchangeAsset> searchAssets(String query, String types) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder
+                .fromUriString(ctx.getBaseUrl() + "/exchange/api/v2/assets")
+                .queryParam("search", query)
+                .queryParam("limit", 20)
+                .queryParam("masterOrganizationId", ctx.getOrgId());
+        if (types != null && !types.isBlank()) {
+            uriBuilder.queryParam("types", types);
+        }
+        String uri = uriBuilder.toUriString();
+
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri(b -> {
-                            var builder = b.path("/exchange/api/v2/assets")
-                                    .queryParam("search", query)
-                                    .queryParam("limit", 20)
-                                    .queryParam("masterOrganizationId", orgId());
-                            if (types != null && !types.isBlank()) {
-                                builder.queryParam("types", types);
-                            }
-                            return builder.build();
-                        })
+                        .uri(uri)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -41,9 +44,10 @@ public class ExchangeClient extends AnypointBaseClient {
     }
 
     public String getAssetSpec(String groupId, String assetId, String version) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/exchange/api/v2/assets/{groupId}/{assetId}/{version}/asset",
+                        .uri(ctx.getBaseUrl() + "/exchange/api/v2/assets/{groupId}/{assetId}/{version}/asset",
                                 groupId, assetId, version)
                         .header("Authorization", token)
                         .retrieve()

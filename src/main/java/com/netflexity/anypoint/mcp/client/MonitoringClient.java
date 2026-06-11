@@ -1,8 +1,8 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.MonitoringMetric;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -13,30 +13,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Anypoint Monitoring API — queries time-series metrics for CloudHub apps.
- */
 @Component
 public class MonitoringClient extends AnypointBaseClient {
 
-    public MonitoringClient(WebClient webClient, AnypointAuthClient authClient,
-                             AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public MonitoringClient(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
-    /**
-     * Query a metric for a specific app over the last N minutes.
-     * Available metrics: cpu, memory, heap, message-count, error-rate, response-time
-     */
     public MonitoringMetric queryMetric(String envId, String appName,
                                          String metric, int lastMinutes) {
         long from = Instant.now().minus(lastMinutes, ChronoUnit.MINUTES).toEpochMilli();
         long to = Instant.now().toEpochMilli();
-
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.post()
-                        .uri("/monitoring/query/api/v1/organizations/{orgId}/environments/{envId}/query/metrics",
-                                orgId(), envId)
+                        .uri(ctx.getBaseUrl() + "/monitoring/query/api/v1/organizations/{orgId}/environments/{envId}/query/metrics",
+                                ctx.getOrgId(), envId)
                         .header("Authorization", token)
                         .bodyValue(Map.of(
                                 "start", from,
@@ -53,21 +45,17 @@ public class MonitoringClient extends AnypointBaseClient {
                 .block();
     }
 
-    /**
-     * List active alerts for an environment.
-     */
     public String listAlerts(String envId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/monitoring/api/v1/organizations/{orgId}/environments/{envId}/alerts",
-                                orgId(), envId)
+                        .uri(ctx.getBaseUrl() + "/monitoring/api/v1/organizations/{orgId}/environments/{envId}/alerts",
+                                ctx.getOrgId(), envId)
                         .header("Authorization", token)
                         .retrieve()
                         .bodyToMono(String.class))
                 .block();
     }
-
-    // ── Parser ────────────────────────────────────────────────────────────────
 
     private MonitoringMetric parseMetric(JsonNode root, String metric, String appName, String envId) {
         List<MonitoringMetric.DataPoint> points = new ArrayList<>();

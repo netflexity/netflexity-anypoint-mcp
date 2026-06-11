@@ -1,13 +1,12 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.netflexity.anypoint.common.client.AnypointAuthClient;
-import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
+import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
+import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.MuleApp;
 import com.netflexity.anypoint.mcp.model.MuleAppLog;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -15,24 +14,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Covers CloudHub 1.0 Runtime Manager API.
- * CH2/RTF support is a v2 addition.
- */
 @Component
 public class RuntimeManagerClient extends AnypointBaseClient {
 
-    public RuntimeManagerClient(WebClient webClient, AnypointAuthClient authClient,
-                                  AnypointMcpProperties properties) {
-        super(webClient, authClient, properties);
+    public RuntimeManagerClient(WebClient webClient, TenantTokenCache tokenCache) {
+        super(webClient, tokenCache);
     }
 
     public List<MuleApp> listApplications(String envId) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/cloudhub/api/v2/applications")
+                        .uri(ctx.getBaseUrl() + "/cloudhub/api/v2/applications")
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -41,11 +36,12 @@ public class RuntimeManagerClient extends AnypointBaseClient {
     }
 
     public MuleApp getApplication(String envId, String appName) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri("/cloudhub/api/v2/applications/{domain}", appName)
+                        .uri(ctx.getBaseUrl() + "/cloudhub/api/v2/applications/{domain}", appName)
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -57,16 +53,14 @@ public class RuntimeManagerClient extends AnypointBaseClient {
                                                 int lines, int sinceMinutes) {
         long startMs = Instant.now().minus(sinceMinutes, ChronoUnit.MINUTES).toEpochMilli();
         long endMs = Instant.now().toEpochMilli();
-
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        String logsUrl = ctx.getBaseUrl() + "/cloudhub/api/v2/applications/" + appName
+                + "/logs?startDate=" + startMs + "&endDate=" + endMs + "&limit=" + lines;
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.get()
-                        .uri(b -> b.path("/cloudhub/api/v2/applications/{domain}/logs")
-                                .queryParam("startDate", startMs)
-                                .queryParam("endDate", endMs)
-                                .queryParam("limit", lines)
-                                .build(appName))
+                        .uri(logsUrl)
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .retrieve()
                         .bodyToMono(JsonNode.class))
@@ -75,11 +69,12 @@ public class RuntimeManagerClient extends AnypointBaseClient {
     }
 
     public String restartApplication(String envId, String appName) {
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.post()
-                        .uri("/cloudhub/api/v2/applications/{domain}/status", appName)
+                        .uri(ctx.getBaseUrl() + "/cloudhub/api/v2/applications/{domain}/status", appName)
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .bodyValue(Map.of("status", "restart"))
                         .retrieve()
@@ -98,11 +93,12 @@ public class RuntimeManagerClient extends AnypointBaseClient {
                 "muleVersion", Map.of("version", runtimeVersion),
                 "properties", properties != null ? properties : Map.of()
         );
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.patch()
-                        .uri("/cloudhub/api/v2/applications/{domain}", domain)
+                        .uri(ctx.getBaseUrl() + "/cloudhub/api/v2/applications/{domain}", domain)
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .bodyValue(body)
                         .retrieve()
@@ -117,11 +113,12 @@ public class RuntimeManagerClient extends AnypointBaseClient {
                         "amount", workerCount,
                         "type", Map.of("name", workerSize))
         );
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.patch()
-                        .uri("/cloudhub/api/v2/applications/{domain}", domain)
+                        .uri(ctx.getBaseUrl() + "/cloudhub/api/v2/applications/{domain}", domain)
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .bodyValue(body)
                         .retrieve()
@@ -133,11 +130,12 @@ public class RuntimeManagerClient extends AnypointBaseClient {
     public MuleApp setEnvironmentVariables(String envId, String domain,
                                             Map<String, String> variables) {
         Map<String, Object> body = Map.of("properties", variables != null ? variables : Map.of());
-        return bearerToken()
+        AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
                 .flatMap(token -> webClient.patch()
-                        .uri("/cloudhub/api/v2/applications/{domain}", domain)
+                        .uri(ctx.getBaseUrl() + "/cloudhub/api/v2/applications/{domain}", domain)
                         .header("Authorization", token)
-                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                         .header("X-ANYPNT-ENV-ID", envId)
                         .bodyValue(body)
                         .retrieve()
@@ -150,7 +148,6 @@ public class RuntimeManagerClient extends AnypointBaseClient {
 
     private List<MuleApp> parseApplications(JsonNode root) {
         List<MuleApp> apps = new ArrayList<>();
-        // CH1 returns an array at top level
         Iterable<JsonNode> nodes = root.isArray() ? root : List.of(root);
         for (JsonNode n : nodes) {
             apps.add(parseApplication(n));
@@ -177,7 +174,6 @@ public class RuntimeManagerClient extends AnypointBaseClient {
 
     private List<MuleAppLog> parseLogs(JsonNode root) {
         List<MuleAppLog> logs = new ArrayList<>();
-        Iterable<JsonNode> nodes = root.isArray() ? root : root.path("logs");
         for (JsonNode n : (Iterable<JsonNode>) (root.isArray() ? root : root.path("data"))) {
             logs.add(MuleAppLog.builder()
                     .timestamp(n.path("event").path("timestamp").asLong(n.path("timestamp").asLong()))
