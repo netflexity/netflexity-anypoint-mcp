@@ -15,9 +15,18 @@ public class McpToolsConfig {
             RuntimeManagerTools runtimeManagerTools,
             ApiManagerTools apiManagerTools,
             ExchangeTools exchangeTools,
-            MqTools mqTools) {
+            MqTools mqTools,
+            CloudHub2Tools cloudHub2Tools,
+            MonitoringTools monitoringTools) {
         return MethodToolCallbackProvider.builder()
-                .toolObjects(environmentTools, runtimeManagerTools, apiManagerTools, exchangeTools, mqTools)
+                .toolObjects(
+                        environmentTools,
+                        runtimeManagerTools,
+                        apiManagerTools,
+                        exchangeTools,
+                        mqTools,
+                        cloudHub2Tools,
+                        monitoringTools)
                 .build();
     }
 }

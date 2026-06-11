@@ -1,0 +1,15 @@
+spring:
+  ai:
+    mcp:
+      server:
+        transport: SSE
+        sse-message-endpoint: /mcp/message
+        sse-endpoint: /mcp/sse
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    com.netflexity.anypoint: DEBUG
+    org.springframework.ai.mcp: DEBUG
