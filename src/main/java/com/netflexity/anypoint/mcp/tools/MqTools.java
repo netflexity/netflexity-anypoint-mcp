@@ -4,10 +4,12 @@ import com.netflexity.anypoint.mcp.client.AnypointMqClient;
 import com.netflexity.anypoint.mcp.client.EnvironmentClient;
 import com.netflexity.anypoint.mcp.model.MqDestination;
 import com.netflexity.anypoint.mcp.model.MqQueueConfig;
+import com.netflexity.anypoint.mcp.model.MqQueueStats;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 public class MqTools {
@@ -42,6 +44,23 @@ public class MqTools {
     public List<String> listRegions(String environment) {
         String envId = environmentClient.resolveEnvironment(environment).getId();
         return mqClient.listRegions(envId);
+    }
+
+    @Tool(description = """
+            Get message throughput statistics for Anypoint MQ queues over a time window.
+            Use this to find the most active queues, compare throughput, or identify idle queues.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region (e.g. "us-east-1"). Defaults to "us-east-1".
+              - queueNames: list of queue names to get stats for (use listDestinations first to get names)
+              - periodHours: how many hours back to look (1–168). Defaults to 1 hour.
+            Returns per-queue counts of messagesReceived, messagesSent, and messagesVisible
+            aggregated over the requested period. Sort by messagesReceived to find the most active queue.
+            """)
+    public List<MqQueueStats> getQueueStats(String environment, String region,
+                                             List<String> queueNames, int periodHours) {
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.getQueueStats(envId, region, queueNames, periodHours);
     }
 
     @Tool(description = """
