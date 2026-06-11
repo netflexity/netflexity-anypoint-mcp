@@ -26,6 +26,9 @@ anypoint:
     read-timeout-seconds: 60
     max-retries: 3
 
+admin:
+  key: ${ADMIN_KEY:}
+
 management:
   endpoints:
     web:
