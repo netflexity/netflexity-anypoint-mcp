@@ -3,18 +3,20 @@ package com.netflexity.anypoint.mcp.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
 import com.netflexity.anypoint.mcp.context.TenantTokenCache;
-import com.netflexity.anypoint.mcp.model.MqDestination;
-import com.netflexity.anypoint.mcp.model.MqQueueConfig;
-import com.netflexity.anypoint.mcp.model.MqQueueStats;
+import com.netflexity.anypoint.mcp.model.*;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 public class AnypointMqClient extends AnypointBaseClient {
@@ -134,6 +136,133 @@ public class AnypointMqClient extends AnypointBaseClient {
                         .thenReturn("Queue deleted")
                         .onErrorReturn("Queue deleted"))
                 .block();
+    }
+
+    public List<MqQueueDepth> getQueueDepth(String envId, String region, List<String> queueNames) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        String destinationIds = queueNames.stream()
+                .map(q -> URLEncoder.encode(q, StandardCharsets.UTF_8))
+                .collect(Collectors.joining(","));
+        AnypointRequestContext ctx = context();
+        String uri = ctx.getBaseUrl()
+                + "/mq/stats/api/v1/organizations/" + ctx.getOrgId()
+                + "/environments/" + envId
+                + "/regions/" + effectiveRegion
+                + "/queues?destinationIds=" + destinationIds;
+
+        return bearerToken(ctx)
+                .flatMap(token -> webClient.get()
+                        .uri(uri)
+                        .header("Authorization", token)
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {}))
+                .map(list -> list.stream().map(entry -> {
+                    Object msgs = entry.get("messages");
+                    Object inflight = entry.get("inflightMessages");
+                    return MqQueueDepth.builder()
+                            .name(String.valueOf(entry.getOrDefault("destination", "")))
+                            .region(effectiveRegion)
+                            .messagesInQueue(msgs instanceof Number n ? n.longValue() : 0L)
+                            .messagesInFlight(inflight instanceof Number n ? n.longValue() : 0L)
+                            .build();
+                }).collect(Collectors.toList()))
+                .onErrorReturn(List.of())
+                .block();
+    }
+
+    public MqUsageSummary getUsageStats(String envId, int lookbackDays) {
+        int days = (lookbackDays > 0 && lookbackDays <= 90) ? lookbackDays : 30;
+        Instant end = Instant.now();
+        Instant start = end.minus(days, ChronoUnit.DAYS);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+        AnypointRequestContext ctx = context();
+        String uri = ctx.getBaseUrl()
+                + "/mq/stats/api/v1/organizations/" + ctx.getOrgId()
+                + "/environments/" + envId
+                + "?startDate=" + fmt.format(start)
+                + "&endDate=" + fmt.format(end)
+                + "&period=1day";
+
+        return bearerToken(ctx)
+                .flatMap(token -> webClient.get()
+                        .uri(uri)
+                        .header("Authorization", token)
+                        .retrieve()
+                        .bodyToFlux(new ParameterizedTypeReference<Map<String, Object>>() {})
+                        .collectList())
+                .map(list -> {
+                    long receipts = 0, billable = 0, apiRequests = 0, bytes = 0;
+                    for (Map<String, Object> day : list) {
+                        receipts    += toLong(day.get("messageReceiptCount"));
+                        billable    += toLong(day.get("billableUnitCount"));
+                        apiRequests += toLong(day.get("apiRequestCount"));
+                        bytes       += toLong(day.get("messageByteCount"));
+                    }
+                    return MqUsageSummary.builder()
+                            .periodDays(days)
+                            .totalMessageReceipts(receipts)
+                            .totalBillableUnits(billable)
+                            .totalApiRequests(apiRequests)
+                            .totalMessageBytes(bytes)
+                            .build();
+                })
+                .onErrorReturn(MqUsageSummary.builder().periodDays(days).build())
+                .block();
+    }
+
+    public List<MqAuditEvent> getMqAuditLog(int lookbackHours) {
+        int hours = (lookbackHours > 0 && lookbackHours <= 720) ? lookbackHours : 24;
+        Instant end = Instant.now();
+        Instant start = end.minus(hours, ChronoUnit.HOURS);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+        AnypointRequestContext ctx = context();
+        String uri = ctx.getBaseUrl() + "/audit/v2/organizations/" + ctx.getOrgId() + "/query";
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("startDate", fmt.format(start));
+        body.put("endDate", fmt.format(end));
+        body.put("platforms", List.of("Anypoint MQ"));
+        body.put("objectTypes", List.of());
+        body.put("actions", List.of());
+        body.put("objectIds", List.of());
+        body.put("userIds", List.of());
+        body.put("ascending", false);
+        body.put("organizationId", ctx.getOrgId());
+        body.put("offset", 0);
+        body.put("limit", 100);
+
+        return bearerToken(ctx)
+                .flatMap(token -> webClient.post()
+                        .uri(uri)
+                        .header("Authorization", token)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class))
+                .map(root -> {
+                    List<MqAuditEvent> events = new ArrayList<>();
+                    JsonNode data = root.path("data");
+                    if (data.isArray()) {
+                        for (JsonNode n : data) {
+                            events.add(MqAuditEvent.builder()
+                                    .id(n.path("id").asText(""))
+                                    .action(n.path("action").asText(""))
+                                    .objectName(n.path("objectName").asText(""))
+                                    .objectType(n.path("objectType").asText(""))
+                                    .userName(n.path("userName").asText(""))
+                                    .userEmail(n.path("userEmail").asText(""))
+                                    .createdAt(n.path("createdAt").asText(""))
+                                    .environmentName(n.path("environmentName").asText(""))
+                                    .build());
+                        }
+                    }
+                    return events;
+                })
+                .onErrorReturn(List.of())
+                .block();
+    }
+
+    private long toLong(Object val) {
+        return val instanceof Number n ? n.longValue() : 0L;
     }
 
     public List<MqQueueStats> getQueueStats(String envId, String region, List<String> queueNames, int periodHours) {

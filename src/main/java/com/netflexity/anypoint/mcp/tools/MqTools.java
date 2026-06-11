@@ -2,9 +2,7 @@ package com.netflexity.anypoint.mcp.tools;
 
 import com.netflexity.anypoint.mcp.client.AnypointMqClient;
 import com.netflexity.anypoint.mcp.client.EnvironmentClient;
-import com.netflexity.anypoint.mcp.model.MqDestination;
-import com.netflexity.anypoint.mcp.model.MqQueueConfig;
-import com.netflexity.anypoint.mcp.model.MqQueueStats;
+import com.netflexity.anypoint.mcp.model.*;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 
@@ -44,6 +42,47 @@ public class MqTools {
     public List<String> listRegions(String environment) {
         String envId = environmentClient.resolveEnvironment(environment).getId();
         return mqClient.listRegions(envId);
+    }
+
+    @Tool(description = """
+            Get real-time queue depth (current message counts) for Anypoint MQ queues.
+            This is the fastest way to see how many messages are waiting and in-flight right now.
+            Use this to find backed-up queues, identify the busiest queue, or check if a queue is drained.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region (e.g. "us-east-1"). Defaults to "us-east-1".
+              - queueNames: list of queue names to check (use listDestinations first to get names)
+            Returns per-queue messagesInQueue (waiting) and messagesInFlight (being processed).
+            Sort by messagesInQueue descending to find the most backed-up queue.
+            """)
+    public List<MqQueueDepth> getQueueDepth(String environment, String region, List<String> queueNames) {
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.getQueueDepth(envId, region, queueNames);
+    }
+
+    @Tool(description = """
+            Get 30-day rolling MQ usage and billing statistics for an environment.
+            Use this to answer billing questions, capacity planning, or usage trend analysis.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - lookbackDays: number of days to aggregate (1–90, default 30)
+            Returns total message receipts, billable units, API requests, and bytes transferred.
+            Billable units are MuleSoft's billing metric — 1 unit per 100KB of message data received.
+            """)
+    public MqUsageSummary getMqUsage(String environment, int lookbackDays) {
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.getUsageStats(envId, lookbackDays);
+    }
+
+    @Tool(description = """
+            Get the MQ configuration audit log — who created, deleted, or modified queues/exchanges.
+            Use this to investigate config changes, troubleshoot unexpected queue behavior, or audit access.
+            Parameters:
+              - lookbackHours: how many hours back to search (1–720, default 24)
+            Returns a list of events with action (Create/Delete/Update), object name, user, timestamp, and environment.
+            """)
+    public List<MqAuditEvent> getMqAuditLog(int lookbackHours) {
+        return mqClient.getMqAuditLog(lookbackHours);
     }
 
     @Tool(description = """
