@@ -34,9 +34,8 @@ HEADERS=(
 echo ""
 echo "Registering MCP server with Claude Code..."
 
-claude mcp add anypoint \
+claude mcp add anypoint "$MCP_URL" \
   --transport sse \
-  --url "$MCP_URL" \
   "${HEADERS[@]}"
 
 echo ""

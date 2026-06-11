@@ -24,7 +24,7 @@ if "!ORG_ID!"=="" goto :missing
 echo.
 echo Registering MCP server with Claude Code...
 
-set CLAUDE_CMD=claude mcp add anypoint --transport sse --url "!MCP_URL!" ^
+set CLAUDE_CMD=claude mcp add anypoint "!MCP_URL!" --transport sse ^
   --header "X-Anypoint-Client-Id: !CLIENT_ID!" ^
   --header "X-Anypoint-Client-Secret: !CLIENT_SECRET!" ^
   --header "X-Anypoint-Org-Id: !ORG_ID!" ^
