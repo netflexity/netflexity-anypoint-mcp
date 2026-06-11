@@ -13,6 +13,9 @@ spring:
       server:
         name: anypoint-mcp
         version: 1.0.0
+        transport: SSE
+        sse-endpoint: /mcp/sse
+        sse-message-endpoint: /mcp/message
 
 admin:
   key: ${ADMIN_KEY:}
