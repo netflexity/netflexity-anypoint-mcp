@@ -9,6 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.StreamSupport;
 
 @Component
@@ -28,6 +29,36 @@ public class ApiManagerClient extends AnypointBaseClient {
                         .retrieve()
                         .bodyToMono(JsonNode.class))
                 .map(this::parseApis)
+                .block();
+    }
+
+    public String applyPolicy(String envId, String apiId, String policyTemplateId,
+                               Map<String, Object> configurationData) {
+        Map<String, Object> body = Map.of(
+                "policyTemplateId", policyTemplateId,
+                "configurationData", configurationData != null ? configurationData : Map.of(),
+                "pointcutData", List.of()
+        );
+        return bearerToken()
+                .flatMap(token -> webClient.post()
+                        .uri("/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis/{apiId}/policies",
+                                orgId(), envId, apiId)
+                        .header("Authorization", token)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(String.class))
+                .block();
+    }
+
+    public String removePolicy(String envId, String apiId, String policyId) {
+        return bearerToken()
+                .flatMap(token -> webClient.delete()
+                        .uri("/apimanager/api/v1/organizations/{orgId}/environments/{envId}/apis/{apiId}/policies/{policyId}",
+                                orgId(), envId, apiId, policyId)
+                        .header("Authorization", token)
+                        .retrieve()
+                        .bodyToMono(Void.class)
+                        .thenReturn("Policy removed"))
                 .block();
     }
 

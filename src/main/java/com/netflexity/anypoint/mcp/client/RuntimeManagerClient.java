@@ -88,6 +88,64 @@ public class RuntimeManagerClient extends AnypointBaseClient {
                 .block();
     }
 
+    public MuleApp deployApplication(String envId, String domain, String runtimeVersion,
+                                      int workerCount, String workerSize,
+                                      Map<String, String> properties) {
+        Map<String, Object> body = Map.of(
+                "workers", Map.of(
+                        "amount", workerCount,
+                        "type", Map.of("name", workerSize)),
+                "muleVersion", Map.of("version", runtimeVersion),
+                "properties", properties != null ? properties : Map.of()
+        );
+        return bearerToken()
+                .flatMap(token -> webClient.patch()
+                        .uri("/cloudhub/api/v2/applications/{domain}", domain)
+                        .header("Authorization", token)
+                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ENV-ID", envId)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class))
+                .map(this::parseApplication)
+                .block();
+    }
+
+    public MuleApp scaleWorkers(String envId, String domain, int workerCount, String workerSize) {
+        Map<String, Object> body = Map.of(
+                "workers", Map.of(
+                        "amount", workerCount,
+                        "type", Map.of("name", workerSize))
+        );
+        return bearerToken()
+                .flatMap(token -> webClient.patch()
+                        .uri("/cloudhub/api/v2/applications/{domain}", domain)
+                        .header("Authorization", token)
+                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ENV-ID", envId)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class))
+                .map(this::parseApplication)
+                .block();
+    }
+
+    public MuleApp setEnvironmentVariables(String envId, String domain,
+                                            Map<String, String> variables) {
+        Map<String, Object> body = Map.of("properties", variables != null ? variables : Map.of());
+        return bearerToken()
+                .flatMap(token -> webClient.patch()
+                        .uri("/cloudhub/api/v2/applications/{domain}", domain)
+                        .header("Authorization", token)
+                        .header("X-ANYPNT-ORG-ID", orgId())
+                        .header("X-ANYPNT-ENV-ID", envId)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class))
+                .map(this::parseApplication)
+                .block();
+    }
+
     // ── Parsers ───────────────────────────────────────────────────────────────
 
     private List<MuleApp> parseApplications(JsonNode root) {

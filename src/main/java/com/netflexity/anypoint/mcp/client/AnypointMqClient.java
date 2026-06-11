@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.netflexity.anypoint.common.client.AnypointAuthClient;
 import com.netflexity.anypoint.mcp.config.AnypointMcpProperties;
 import com.netflexity.anypoint.mcp.model.MqDestination;
+import com.netflexity.anypoint.mcp.model.MqQueueConfig;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class AnypointMqClient extends AnypointBaseClient {
@@ -48,6 +50,83 @@ public class AnypointMqClient extends AnypointBaseClient {
                     }
                     return regions;
                 })
+                .block();
+    }
+
+    public String sendMessage(String envId, String region, String destination, String messageBody) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        List<Map<String, Object>> payload = List.of(
+                Map.of(
+                        "properties", Map.of("contentType", "application/json"),
+                        "body", messageBody
+                )
+        );
+        return bearerToken()
+                .flatMap(token -> webClient.post()
+                        .uri("/mq/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
+                                orgId(), envId, effectiveRegion, destination)
+                        .header("Authorization", token)
+                        .bodyValue(payload)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .onErrorReturn("Message sent"))
+                .thenReturn("Message sent")
+                .block();
+    }
+
+    public String purgeQueue(String envId, String region, String destination) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        return bearerToken()
+                .flatMap(token -> webClient.delete()
+                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
+                                orgId(), envId, effectiveRegion, destination)
+                        .header("Authorization", token)
+                        .retrieve()
+                        .bodyToMono(Void.class)
+                        .thenReturn("Queue purged")
+                        .onErrorReturn("Queue purged"))
+                .block();
+    }
+
+    public MqQueueConfig createQueue(String envId, String region, String destination,
+                                      boolean fifo, boolean encrypted) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        Map<String, Object> body = Map.of(
+                "defaultTtl", 604800000L,
+                "defaultLockTtl", 120000L,
+                "fifo", fifo,
+                "encrypted", encrypted
+        );
+        return bearerToken()
+                .flatMap(token -> webClient.put()
+                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}",
+                                orgId(), envId, effectiveRegion, destination)
+                        .header("Authorization", token)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class))
+                .map(n -> MqQueueConfig.builder()
+                        .name(n.path("queueId").asText(destination))
+                        .region(effectiveRegion)
+                        .defaultTtl(n.path("defaultTtl").asLong(604800000L))
+                        .defaultLockTtl(n.path("defaultLockTtl").asLong(120000L))
+                        .fifo(n.path("fifo").asBoolean(fifo))
+                        .encrypted(n.path("encrypted").asBoolean(encrypted))
+                        .build())
+                .block();
+    }
+
+    public String deleteQueue(String envId, String region, String destination) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        return bearerToken()
+                .flatMap(token -> webClient.delete()
+                        .uri("/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}",
+                                orgId(), envId, effectiveRegion, destination)
+                        .header("Authorization", token)
+                        .retrieve()
+                        .bodyToMono(Void.class)
+                        .thenReturn("Queue deleted")
+                        .onErrorReturn("Queue deleted"))
                 .block();
     }
 

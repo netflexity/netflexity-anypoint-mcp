@@ -3,6 +3,7 @@ package com.netflexity.anypoint.mcp.tools;
 import com.netflexity.anypoint.mcp.client.AnypointMqClient;
 import com.netflexity.anypoint.mcp.client.EnvironmentClient;
 import com.netflexity.anypoint.mcp.model.MqDestination;
+import com.netflexity.anypoint.mcp.model.MqQueueConfig;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 
@@ -41,5 +42,70 @@ public class MqTools {
     public List<String> listRegions(String environment) {
         String envId = environmentClient.resolveEnvironment(environment).getId();
         return mqClient.listRegions(envId);
+    }
+
+    @Tool(description = """
+            Send a message to an Anypoint MQ queue or message exchange.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region where MQ is deployed (e.g. "us-east-1"). Defaults to "us-east-1".
+              - destination: queue or exchange name to send the message to
+              - messageBody: the message payload (JSON string or plain text)
+            Returns "Message sent" on success.
+            """)
+    public String sendMessage(String environment, String region, String destination,
+                               String messageBody) {
+        // TODO: licenseService.requirePro();
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.sendMessage(envId, region, destination, messageBody);
+    }
+
+    @Tool(description = """
+            Purge all messages from an Anypoint MQ queue.
+            WARNING: This is a DESTRUCTIVE operation — all messages currently in the queue
+            will be permanently deleted and cannot be recovered. Use with extreme caution.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region where MQ is deployed (e.g. "us-east-1"). Defaults to "us-east-1".
+              - destination: queue name to purge
+            Returns "Queue purged" on success.
+            """)
+    public String purgeQueue(String environment, String region, String destination) {
+        // TODO: licenseService.requirePro();
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.purgeQueue(envId, region, destination);
+    }
+
+    @Tool(description = """
+            Create a new Anypoint MQ queue in a given environment and region.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region where MQ is deployed (e.g. "us-east-1"). Defaults to "us-east-1".
+              - queueName: name for the new queue
+              - fifo: whether to create a FIFO (ordered) queue; true for FIFO, false for standard
+              - encrypted: whether to encrypt messages at rest
+            Returns the created queue configuration including TTL settings and flags.
+            """)
+    public MqQueueConfig createQueue(String environment, String region, String queueName,
+                                      boolean fifo, boolean encrypted) {
+        // TODO: licenseService.requirePro();
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.createQueue(envId, region, queueName, fifo, encrypted);
+    }
+
+    @Tool(description = """
+            Delete an Anypoint MQ queue from a given environment and region.
+            WARNING: This is a DESTRUCTIVE operation — the queue and all its messages
+            will be permanently deleted. This action cannot be undone. Use with extreme caution.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region where MQ is deployed (e.g. "us-east-1"). Defaults to "us-east-1".
+              - queueName: name of the queue to delete
+            Returns "Queue deleted" on success.
+            """)
+    public String deleteQueue(String environment, String region, String queueName) {
+        // TODO: licenseService.requirePro();
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.deleteQueue(envId, region, queueName);
     }
 }
