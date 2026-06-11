@@ -23,6 +23,20 @@ public class AnypointMqClient extends AnypointBaseClient {
 
     private static final String DEFAULT_REGION = "us-east-1";
 
+    private static final Map<String, String> BROKER_URLS = Map.of(
+            "us-east-1",      "https://mq-us-east-1.anypoint.mulesoft.com",
+            "us-west-2",      "https://mq-us-west-2.anypoint.mulesoft.com",
+            "eu-west-1",      "https://mq-eu-west-1.anypoint.mulesoft.com",
+            "eu-central-1",   "https://mq-eu-central-1.anypoint.mulesoft.com",
+            "ap-southeast-1", "https://mq-ap-southeast-1.anypoint.mulesoft.com",
+            "ap-southeast-2", "https://mq-ap-southeast-2.anypoint.mulesoft.com",
+            "ca-central-1",   "https://mq-ca-central-1.anypoint.mulesoft.com"
+    );
+
+    private String brokerUrl(String region) {
+        return BROKER_URLS.getOrDefault(region, "https://mq-us-east-1.anypoint.mulesoft.com");
+    }
+
     public AnypointMqClient(WebClient webClient, TenantTokenCache tokenCache) {
         super(webClient, tokenCache);
     }
@@ -257,6 +271,80 @@ public class AnypointMqClient extends AnypointBaseClient {
                     }
                     return events;
                 })
+                .onErrorReturn(List.of())
+                .block();
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<MqMessage> peekMessages(String envId, String region, String queueName, int maxMessages) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        int batchSize = Math.min(Math.max(maxMessages, 1), 10);
+        AnypointRequestContext ctx = context();
+        String browseUrl = brokerUrl(effectiveRegion)
+                + "/api/v1/organizations/" + ctx.getOrgId()
+                + "/environments/" + envId
+                + "/destinations/" + queueName
+                + "/messages?batchSize=" + batchSize + "&pollingTime=1000&lockTtl=10000";
+
+        return bearerToken(ctx)
+                .flatMap(token -> webClient.get()
+                        .uri(browseUrl)
+                        .header("Authorization", token)
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                        .header("X-ANYPNT-ENV-ID", envId)
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                        .defaultIfEmpty(List.of())
+                        .flatMap(messages -> {
+                            List<MqMessage> result = new ArrayList<>();
+                            List<Map<String, Object>> lockInfos = new ArrayList<>();
+                            for (Map<String, Object> msg : messages) {
+                                Map<String, Object> headers = (Map<String, Object>) msg.getOrDefault("headers", Map.of());
+                                String msgId = (String) headers.get("messageId");
+                                String lockId = (String) headers.get("lockId");
+                                String contentType = (String) headers.get("contentType");
+                                Map<String, Object> props = (Map<String, Object>) msg.getOrDefault("properties", Map.of());
+                                Object bodyObj = msg.get("body");
+                                String body = bodyObj != null ? bodyObj.toString() : "";
+                                if (body.length() > 500) body = body.substring(0, 500) + "…";
+                                result.add(MqMessage.builder()
+                                        .messageId(msgId)
+                                        .lockId(lockId)
+                                        .contentType(contentType)
+                                        .body(body)
+                                        .properties(props)
+                                        .build());
+                                if (msgId != null && lockId != null) {
+                                    Map<String, Object> lock = new LinkedHashMap<>();
+                                    lock.put("messageId", msgId);
+                                    lock.put("lockId", lockId);
+                                    lockInfos.add(lock);
+                                }
+                            }
+                            // Release locks so messages remain available for real consumers
+                            if (lockInfos.isEmpty()) return reactor.core.publisher.Mono.just(result);
+                            String releaseUrl = brokerUrl(effectiveRegion)
+                                    + "/api/v1/organizations/" + ctx.getOrgId()
+                                    + "/environments/" + envId
+                                    + "/destinations/" + queueName
+                                    + "/messages/locks";
+                            // Release in batches of 5
+                            List<List<Map<String, Object>>> batches = new ArrayList<>();
+                            for (int i = 0; i < lockInfos.size(); i += 5)
+                                batches.add(lockInfos.subList(i, Math.min(i + 5, lockInfos.size())));
+                            return reactor.core.publisher.Flux.fromIterable(batches)
+                                    .concatMap(batch -> webClient
+                                            .method(org.springframework.http.HttpMethod.DELETE)
+                                            .uri(releaseUrl)
+                                            .header("Authorization", token)
+                                            .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                                            .header("X-ANYPNT-ENV-ID", envId)
+                                            .bodyValue(batch)
+                                            .retrieve()
+                                            .bodyToMono(Void.class)
+                                            .onErrorResume(e -> reactor.core.publisher.Mono.empty()))
+                                    .then(reactor.core.publisher.Mono.just(result));
+                        }))
                 .onErrorReturn(List.of())
                 .block();
     }

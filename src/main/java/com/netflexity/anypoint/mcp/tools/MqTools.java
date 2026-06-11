@@ -86,6 +86,24 @@ public class MqTools {
     }
 
     @Tool(description = """
+            Peek at messages in an Anypoint MQ queue without consuming them.
+            Uses the Broker API to non-destructively browse up to 10 messages — locks are immediately released
+            so real consumers are unaffected. Use this to inspect what's in a queue, debug stuck messages,
+            or sample message content/format.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region (e.g. "us-east-1"). Defaults to "us-east-1".
+              - queueName: name of the queue to peek at
+              - maxMessages: number of messages to peek (1–10, default 5)
+            Returns messageId, contentType, body preview (truncated at 500 chars), and custom properties.
+            """)
+    public List<MqMessage> peekMessages(String environment, String region,
+                                         String queueName, int maxMessages) {
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.peekMessages(envId, region, queueName, maxMessages);
+    }
+
+    @Tool(description = """
             Get message throughput statistics for Anypoint MQ queues over a time window.
             Use this to find the most active queues, compare throughput, or identify idle queues.
             Parameters:
