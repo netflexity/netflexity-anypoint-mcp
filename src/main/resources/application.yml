@@ -39,3 +39,9 @@ logging:
   level:
     com.netflexity.anypoint: INFO
     org.springframework.ai: INFO
+
+license:
+  keys:
+    # Test keys for dev/testing — real keys set via LICENSE_KEYS_* env vars in Railway
+    "test-pro-key-123": "PRO"
+    "test-ent-key-456": "ENTERPRISE"
