@@ -6,15 +6,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
-import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
 
 import java.time.Duration;
-import java.time.Instant;
 
 @Configuration
 public class AnypointCommonConfig {
@@ -42,18 +39,13 @@ public class AnypointCommonConfig {
     }
 
     private ExchangeFilterFunction tracingFilter() {
-        return ExchangeFilterFunction.ofRequestProcessor(request -> {
-            log.info("--> {} {}", request.method(), redactUrl(request));
-            return Mono.just(ClientRequest.from(request).build());
-        }).andThen(ExchangeFilterFunction.ofResponseProcessor(response -> {
-            // status only — body is streamed, can't read it here without buffering
-            log.info("<-- {}", response.statusCode());
-            return Mono.just(response);
-        }));
-    }
-
-    private String redactUrl(ClientRequest request) {
-        // Mask bearer token if accidentally in URL; keep everything else visible
-        return request.url().toString().replaceAll("(?i)(token|secret|password)=[^&]+", "$1=***");
+        return (request, next) -> {
+            String url = request.url().toString()
+                    .replaceAll("(?i)(token|secret|password)=[^&]+", "$1=***");
+            log.info("--> {} {}", request.method(), url);
+            return next.exchange(request)
+                    .doOnNext(resp -> log.info("<-- {} {}", resp.statusCode().value(), url))
+                    .doOnError(err -> log.warn("<-- ERROR {} {}", err.getMessage(), url));
+        };
     }
 }

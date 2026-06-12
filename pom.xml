@@ -55,10 +55,16 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
-        <!-- WebFlux for reactive API calls -->
+        <!-- WebFlux for reactive API calls — exclude Tomcat so Netty wins -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-tomcat</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Caching (Caffeine) -->
