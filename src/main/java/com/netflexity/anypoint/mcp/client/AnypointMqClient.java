@@ -128,7 +128,7 @@ public class AnypointMqClient extends AnypointBaseClient {
                 if (messageId == null) continue;
 
                 String ackUrl = brokerBase + "/messages/" + messageId
-                        + (lockId != null ? "?lockId=" + lockId : "");
+                        + (lockId != null ? "?lockId=" + URLEncoder.encode(lockId, StandardCharsets.UTF_8) : "");
                 final String finalAckUrl = ackUrl;
 
                 bearerToken(ctx)
