@@ -87,9 +87,11 @@ public class AnypointMqClient extends AnypointBaseClient {
                         .header("Authorization", token)
                         .bodyValue(payload)
                         .retrieve()
-                        .bodyToMono(String.class)
-                        .onErrorReturn("Message sent"))
-                .thenReturn("Message sent")
+                        .onStatus(status -> !status.is2xxSuccessful(),
+                                resp -> resp.bodyToMono(String.class).map(body ->
+                                        new RuntimeException("Send failed (" + resp.statusCode().value() + "): " + body)))
+                        .bodyToMono(String.class))
+                .thenReturn("Message sent to " + destination)
                 .block();
     }
 
@@ -102,9 +104,11 @@ public class AnypointMqClient extends AnypointBaseClient {
                                 ctx.getOrgId(), envId, effectiveRegion, destination)
                         .header("Authorization", token)
                         .retrieve()
+                        .onStatus(status -> !status.is2xxSuccessful(),
+                                resp -> resp.bodyToMono(String.class).map(body ->
+                                        new RuntimeException("Purge failed (" + resp.statusCode().value() + "): " + body)))
                         .bodyToMono(Void.class)
-                        .thenReturn("Queue purged")
-                        .onErrorReturn("Queue purged"))
+                        .thenReturn("Queue purged: " + destination))
                 .block();
     }
 
@@ -146,9 +150,11 @@ public class AnypointMqClient extends AnypointBaseClient {
                                 ctx.getOrgId(), envId, effectiveRegion, destination)
                         .header("Authorization", token)
                         .retrieve()
+                        .onStatus(status -> !status.is2xxSuccessful(),
+                                resp -> resp.bodyToMono(String.class).map(body ->
+                                        new RuntimeException("Delete failed (" + resp.statusCode().value() + "): " + body)))
                         .bodyToMono(Void.class)
-                        .thenReturn("Queue deleted")
-                        .onErrorReturn("Queue deleted"))
+                        .thenReturn("Queue deleted: " + destination))
                 .block();
     }
 
