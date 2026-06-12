@@ -35,6 +35,7 @@ logging:
   level:
     com.netflexity.anypoint: INFO
     org.springframework.ai: INFO
+    anypoint.api: INFO
 
 license:
   keys:
