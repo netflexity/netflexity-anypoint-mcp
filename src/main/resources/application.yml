@@ -18,6 +18,7 @@ spring:
         transport: SSE
         sse-endpoint: /mcp/sse
         sse-message-endpoint: /mcp/message
+        request-timeout: 300s
 
 admin:
   key: ${ADMIN_KEY:}
