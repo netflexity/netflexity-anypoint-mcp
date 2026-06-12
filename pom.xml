@@ -48,11 +48,17 @@
             <artifactId>spring-ai-starter-mcp-server-webflux</artifactId>
         </dependency>
 
-        <!-- Shared Anypoint auth + models -->
+        <!-- Shared Anypoint auth + models — exclude Tomcat pulled in by anypoint-common's starter-web -->
         <dependency>
             <groupId>com.netflexity.anypoint</groupId>
             <artifactId>anypoint-common</artifactId>
             <version>1.0.0-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-tomcat</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- WebFlux for reactive API calls — exclude Tomcat so Netty wins -->
