@@ -98,18 +98,56 @@ public class AnypointMqClient extends AnypointBaseClient {
     public String purgeQueue(String envId, String region, String destination) {
         String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
         AnypointRequestContext ctx = context();
-        return bearerToken(ctx)
-                .flatMap(token -> webClient.delete()
-                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/{destination}/messages",
-                                ctx.getOrgId(), envId, effectiveRegion, destination)
-                        .header("Authorization", token)
-                        .retrieve()
-                        .onStatus(status -> !status.is2xxSuccessful(),
-                                resp -> resp.bodyToMono(String.class).map(body ->
-                                        new RuntimeException("Purge failed (" + resp.statusCode().value() + "): " + body)))
-                        .bodyToMono(Void.class)
-                        .thenReturn("Queue purged: " + destination))
-                .block();
+        String brokerBase = brokerUrl(effectiveRegion)
+                + "/api/v1/organizations/" + ctx.getOrgId()
+                + "/environments/" + envId
+                + "/destinations/" + destination;
+
+        int totalDeleted = 0;
+        int maxBatches = 1000; // safety cap: 10k messages max
+
+        for (int batch = 0; batch < maxBatches; batch++) {
+            List<Map<String, Object>> raw = bearerToken(ctx)
+                    .flatMap(token -> webClient.get()
+                            .uri(brokerBase + "/messages?batchSize=10&pollingTime=500&lockTtl=60000")
+                            .header("Authorization", token)
+                            .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                            .header("X-ANYPNT-ENV-ID", envId)
+                            .retrieve()
+                            .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                            .defaultIfEmpty(List.of()))
+                    .block();
+
+            if (raw == null || raw.isEmpty()) break;
+
+            for (Map<String, Object> msg : raw) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> headers = (Map<String, Object>) msg.getOrDefault("headers", Map.of());
+                String messageId = (String) headers.get("messageId");
+                String lockId = (String) headers.get("lockId");
+                if (messageId == null) continue;
+
+                String ackUrl = brokerBase + "/messages/" + messageId
+                        + (lockId != null ? "?lockId=" + lockId : "");
+                final String finalAckUrl = ackUrl;
+
+                bearerToken(ctx)
+                        .flatMap(token -> webClient.delete()
+                                .uri(finalAckUrl)
+                                .header("Authorization", token)
+                                .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                                .header("X-ANYPNT-ENV-ID", envId)
+                                .retrieve()
+                                .onStatus(s -> !s.is2xxSuccessful(),
+                                        resp -> resp.bodyToMono(String.class).map(body ->
+                                                new RuntimeException("ACK failed (" + resp.statusCode().value() + "): " + body)))
+                                .bodyToMono(Void.class))
+                        .block();
+                totalDeleted++;
+            }
+        }
+
+        return "Purged " + totalDeleted + " messages from " + destination;
     }
 
     public MqQueueConfig createQueue(String envId, String region, String destination,
