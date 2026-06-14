@@ -2,6 +2,39 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for MuleSoft Anypoint Platform. Talk to Anypoint from Claude Code — list apps, fetch logs, inspect queues, search Exchange, and more.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Client["Your Machine"]
+        CC["🤖 Claude Code\n(IDE / CLI)"]
+    end
+
+    subgraph Server["Railway — mcp.qflex.io"]
+        direction TB
+        MCP["Anypoint MCP Server\nSpring Boot · WebFlux · Netty"]
+        note["Stateless · credentials per-request\nnothing stored server-side"]
+        MCP ~~~ note
+    end
+
+    subgraph Anypoint["MuleSoft Anypoint Platform"]
+        direction TB
+        Admin["Admin API\nqueues · exchanges · regions"]
+        Stats["Stats API\ndepth · throughput · billing"]
+        Broker["Broker API\npeek · send · purge · ACK"]
+        AuditAP["Audit API\nwho changed what"]
+    end
+
+    CC -- "SSE transport\nX-Anypoint-* headers\nper request" --> MCP
+    MCP -- "REST" --> Admin
+    MCP -- "REST" --> Stats
+    MCP -- "REST" --> Broker
+    MCP -- "REST" --> AuditAP
+```
+
+> Credentials flow in with every request — client ID, secret, and org ID as HTTP headers.
+> The server holds no state and no secrets of its own.
+
 ## Tools
 
 | Tool | API | Tier |
