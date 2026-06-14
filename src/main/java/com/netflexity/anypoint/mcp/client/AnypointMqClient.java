@@ -127,13 +127,13 @@ public class AnypointMqClient extends AnypointBaseClient {
                 String lockId = (String) headers.get("lockId");
                 if (messageId == null) continue;
 
-                String ackUrl = brokerBase + "/messages/" + messageId
+                String ackUrlStr = brokerBase + "/messages/" + messageId
                         + (lockId != null ? "?lockId=" + URLEncoder.encode(lockId, StandardCharsets.UTF_8) : "");
-                final String finalAckUrl = ackUrl;
+                final java.net.URI ackUri = java.net.URI.create(ackUrlStr);
 
                 bearerToken(ctx)
                         .flatMap(token -> webClient.delete()
-                                .uri(finalAckUrl)
+                                .uri(ackUri)
                                 .header("Authorization", token)
                                 .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
                                 .header("X-ANYPNT-ENV-ID", envId)
