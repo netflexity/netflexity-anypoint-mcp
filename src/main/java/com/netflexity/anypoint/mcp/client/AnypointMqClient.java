@@ -98,56 +98,76 @@ public class AnypointMqClient extends AnypointBaseClient {
     public String purgeQueue(String envId, String region, String destination) {
         String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
         AnypointRequestContext ctx = context();
+        return bearerToken(ctx)
+                .flatMap(token -> webClient.delete()
+                        .uri(ctx.getBaseUrl() + "/mq/admin/api/v1/organizations/{orgId}/environments/{envId}/regions/{region}/destinations/queues/{destination}/messages",
+                                ctx.getOrgId(), envId, effectiveRegion, destination)
+                        .header("Authorization", token)
+                        .retrieve()
+                        .onStatus(status -> !status.is2xxSuccessful(),
+                                resp -> resp.bodyToMono(String.class).map(body ->
+                                        new RuntimeException("Purge failed (" + resp.statusCode().value() + "): " + body)))
+                        .bodyToMono(Void.class)
+                        .thenReturn("Queue purged: " + destination))
+                .block();
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<MqMessage> consumeMessages(String envId, String region, String queueName, int maxMessages) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        int batchSize = Math.min(Math.max(maxMessages, 1), 10);
+        AnypointRequestContext ctx = context();
         String brokerBase = brokerUrl(effectiveRegion)
                 + "/api/v1/organizations/" + ctx.getOrgId()
                 + "/environments/" + envId
-                + "/destinations/" + destination;
+                + "/destinations/" + queueName;
 
-        int totalDeleted = 0;
-        int maxBatches = 1000; // safety cap: 10k messages max
-
-        for (int batch = 0; batch < maxBatches; batch++) {
-            List<Map<String, Object>> raw = bearerToken(ctx)
-                    .flatMap(token -> webClient.get()
-                            .uri(brokerBase + "/messages?batchSize=10&pollingTime=500&lockTtl=60000")
-                            .header("Authorization", token)
-                            .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
-                            .header("X-ANYPNT-ENV-ID", envId)
-                            .retrieve()
-                            .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
-                            .defaultIfEmpty(List.of()))
-                    .block();
-
-            if (raw == null || raw.isEmpty()) break;
-
-            for (Map<String, Object> msg : raw) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> headers = (Map<String, Object>) msg.getOrDefault("headers", Map.of());
-                String messageId = (String) headers.get("messageId");
-                String lockId = (String) headers.get("lockId");
-                if (messageId == null) continue;
-
-                String ackUrlStr = brokerBase + "/messages/" + messageId
-                        + (lockId != null ? "?lockId=" + URLEncoder.encode(lockId, StandardCharsets.UTF_8) : "");
-                final java.net.URI ackUri = java.net.URI.create(ackUrlStr);
-
-                bearerToken(ctx)
-                        .flatMap(token -> webClient.delete()
-                                .uri(ackUri)
-                                .header("Authorization", token)
-                                .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
-                                .header("X-ANYPNT-ENV-ID", envId)
-                                .retrieve()
-                                .onStatus(s -> !s.is2xxSuccessful(),
-                                        resp -> resp.bodyToMono(String.class).map(body ->
-                                                new RuntimeException("ACK failed (" + resp.statusCode().value() + "): " + body)))
-                                .bodyToMono(Void.class))
-                        .block();
-                totalDeleted++;
-            }
-        }
-
-        return "Purged " + totalDeleted + " messages from " + destination;
+        return bearerToken(ctx)
+                .flatMap(token -> webClient.get()
+                        .uri(brokerBase + "/messages?batchSize=" + batchSize + "&pollingTime=1000&lockTtl=30000")
+                        .header("Authorization", token)
+                        .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                        .header("X-ANYPNT-ENV-ID", envId)
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                        .defaultIfEmpty(List.of())
+                        .flatMap(messages -> {
+                            List<MqMessage> result = new ArrayList<>();
+                            for (Map<String, Object> msg : messages) {
+                                Map<String, Object> headers = (Map<String, Object>) msg.getOrDefault("headers", Map.of());
+                                String msgId = (String) headers.get("messageId");
+                                String lockId = (String) headers.get("lockId");
+                                String contentType = (String) headers.get("contentType");
+                                Map<String, Object> props = (Map<String, Object>) msg.getOrDefault("properties", Map.of());
+                                Object bodyObj = msg.get("body");
+                                String body = bodyObj != null ? bodyObj.toString() : "";
+                                result.add(MqMessage.builder()
+                                        .messageId(msgId)
+                                        .lockId(lockId)
+                                        .contentType(contentType)
+                                        .body(body)
+                                        .properties(props)
+                                        .build());
+                            }
+                            // ACK each message: PATCH /messages/{messageId}/locks/{lockId}
+                            return reactor.core.publisher.Flux.fromIterable(result)
+                                    .concatMap(m -> {
+                                        if (m.getMessageId() == null || m.getLockId() == null)
+                                            return reactor.core.publisher.Mono.empty();
+                                        return webClient.patch()
+                                                .uri(brokerBase + "/messages/{messageId}/locks/{lockId}",
+                                                        m.getMessageId(), m.getLockId())
+                                                .header("Authorization", token)
+                                                .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                                                .header("X-ANYPNT-ENV-ID", envId)
+                                                .retrieve()
+                                                .bodyToMono(Void.class)
+                                                .onErrorResume(e -> reactor.core.publisher.Mono.empty());
+                                    })
+                                    .then(reactor.core.publisher.Mono.just(result));
+                        }))
+                .onErrorReturn(List.of())
+                .block();
     }
 
     public MqQueueConfig createQueue(String envId, String region, String destination,
@@ -366,27 +386,26 @@ public class AnypointMqClient extends AnypointBaseClient {
                                 }
                             }
                             // Release locks so messages remain available for real consumers
+                            // lockId is a path segment: DELETE /messages/{messageId}/locks/{lockId}
                             if (lockInfos.isEmpty()) return reactor.core.publisher.Mono.just(result);
-                            String releaseUrl = brokerUrl(effectiveRegion)
+                            String brokerBase = brokerUrl(effectiveRegion)
                                     + "/api/v1/organizations/" + ctx.getOrgId()
                                     + "/environments/" + envId
-                                    + "/destinations/" + queueName
-                                    + "/messages/locks";
-                            // Release in batches of 5
-                            List<List<Map<String, Object>>> batches = new ArrayList<>();
-                            for (int i = 0; i < lockInfos.size(); i += 5)
-                                batches.add(lockInfos.subList(i, Math.min(i + 5, lockInfos.size())));
-                            return reactor.core.publisher.Flux.fromIterable(batches)
-                                    .concatMap(batch -> webClient
-                                            .method(org.springframework.http.HttpMethod.DELETE)
-                                            .uri(releaseUrl)
-                                            .header("Authorization", token)
-                                            .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
-                                            .header("X-ANYPNT-ENV-ID", envId)
-                                            .bodyValue(batch)
-                                            .retrieve()
-                                            .bodyToMono(Void.class)
-                                            .onErrorResume(e -> reactor.core.publisher.Mono.empty()))
+                                    + "/destinations/" + queueName;
+                            return reactor.core.publisher.Flux.fromIterable(lockInfos)
+                                    .concatMap(lock -> {
+                                        String msgId2 = (String) lock.get("messageId");
+                                        String lockId2 = (String) lock.get("lockId");
+                                        return webClient.delete()
+                                                .uri(brokerBase + "/messages/{messageId}/locks/{lockId}",
+                                                        msgId2, lockId2)
+                                                .header("Authorization", token)
+                                                .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                                                .header("X-ANYPNT-ENV-ID", envId)
+                                                .retrieve()
+                                                .bodyToMono(Void.class)
+                                                .onErrorResume(e -> reactor.core.publisher.Mono.empty());
+                                    })
                                     .then(reactor.core.publisher.Mono.just(result));
                         }))
                 .onErrorReturn(List.of())

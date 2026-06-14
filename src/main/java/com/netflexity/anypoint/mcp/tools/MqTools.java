@@ -170,6 +170,26 @@ public class MqTools {
     }
 
     @Tool(description = """
+            Consume (receive and acknowledge) messages from an Anypoint MQ queue, permanently removing them.
+            Unlike peekMessages which returns messages without consuming them, this tool reads messages
+            and ACKs each one so they are deleted from the queue.
+            Use this to process dead-letter queue messages, drain a specific number of bad messages,
+            or selectively remove messages after inspecting their content with peekMessages first.
+            Parameters:
+              - environment: environment name (e.g. "Production") or environment ID
+              - region: AWS region (e.g. "us-east-1"). Defaults to "us-east-1".
+              - queueName: name of the queue to consume from
+              - maxMessages: number of messages to consume and delete (1–10)
+            Returns the consumed message bodies and IDs. Messages are permanently removed.
+            """)
+    public List<MqMessage> consumeMessages(String environment, String region,
+                                            String queueName, int maxMessages) {
+        // TODO: licenseService.requirePro();
+        String envId = environmentClient.resolveEnvironment(environment).getId();
+        return mqClient.consumeMessages(envId, region, queueName, maxMessages);
+    }
+
+    @Tool(description = """
             Delete an Anypoint MQ queue from a given environment and region.
             WARNING: This is a DESTRUCTIVE operation — the queue and all its messages
             will be permanently deleted. This action cannot be undone. Use with extreme caution.
