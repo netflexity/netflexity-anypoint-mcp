@@ -52,10 +52,52 @@ flowchart LR
 | `listApis` | API Manager | Free |
 | `applyPolicy` / `removePolicy` | API Manager | **Pro** |
 | `searchAssets` / `getAssetSpec` | Exchange | Free |
-| `listDestinations` / `listRegions` | Anypoint MQ | Free |
-| `sendMessage` | Anypoint MQ | **Pro** |
+| `listDestinations` / `listRegions` / `getQueueDepth` / `getQueueStats` | Anypoint MQ | Free |
+| `peekMessages` / `getMqUsage` / `getMqAuditLog` | Anypoint MQ | Free |
+| `triageDeadLetterQueues` | Anypoint MQ | Free |
+| `sendMessage` / `consumeMessages` | Anypoint MQ | **Pro** |
 | `purgeQueue` / `createQueue` / `deleteQueue` | Anypoint MQ | **Pro** |
+| `redriveMessages` | Anypoint MQ (Broker) | **Pro** |
+| `analyzeMqCosts` | Anypoint MQ (Stats) | **Pro** |
+| `rightsizeWorkers` | Anypoint MQ + Monitoring | **Pro** |
 | `queryMetric` / `listAlerts` | Anypoint Monitoring | Free |
+| `getPlatformHealthScorecard` | MQ + Platform | Free |
+| `diagnoseIncident` | MQ + Platform | **Enterprise** |
+
+Tiers are enforced by the `X-API-Key` header: **Free** (diagnosis + read), **Pro** (actions), **Enterprise** (RCA + uncapped). Free tools surface the problem and name the paid tool that fixes it.
+
+## What You Can Ask
+
+Natural-language prompts that map to the Anypoint MQ tools. Tier in brackets. The AI picks the tool — you just describe the goal.
+
+**Dead-letter triage & recovery**
+
+- "Any dead letters in Production, and what's failing?" → `triageDeadLetterQueues` *(Free)*
+- "Show the dead-letter backlog and group the errors by type" → `triageDeadLetterQueues` *(Free)*
+- "Dry-run a redrive of `orders-dlq` back into `orders-queue`" → `redriveMessages` (dryRun) *(Pro)*
+- "Replay the recoverable messages from `orders-dlq` into `orders-queue`" → `redriveMessages` *(Pro)*
+
+**Health & incident triage**
+
+- "Give me a health scorecard for Production" → `getPlatformHealthScorecard` *(Free)*
+- "Grade our Anypoint MQ setup and tell me what to fix" → `getPlatformHealthScorecard` *(Free)*
+- "Diagnose what happened to `orders-api` in the last 6 hours" → `diagnoseIncident` *(Enterprise)*
+- "Build an incident timeline for `payments-api` and rank the likely causes" → `diagnoseIncident` *(Enterprise)*
+
+**Cost & rightsizing (FinOps)**
+
+- "What is our Anypoint MQ costing and where's the waste?" → `analyzeMqCosts` *(Pro)*
+- "Estimate MQ spend for the last 30 days at $0.10 per billable unit and find idle queues" → `analyzeMqCosts` *(Pro)*
+- "Which apps are overprovisioned and can be downsized?" → `rightsizeWorkers` *(Pro)*
+- "Rightsize workers in Production based on CPU utilization" → `rightsizeWorkers` *(Pro)*
+
+**Everyday MQ ops** (existing)
+
+- "How deep is `orders-queue` right now?" → `getQueueDepth` *(Free)*
+- "Peek at the next 5 messages in `payments-dlq`" → `peekMessages` *(Free)*
+- "Send a test message to `orders-queue`" → `sendMessage` *(Pro)*
+
+> Redrive is client-side consume-then-republish: it is at-least-once and republished messages get new messageIds. Always dry-run first. The `$`-per-billable-unit for cost is your contracted rate, passed in — it is never hardcoded.
 
 ## Quick Start (stdio — Claude Code local)
 
