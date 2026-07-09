@@ -1,6 +1,8 @@
-# Anypoint MCP Server
+# Anypoint MQ MCP Server
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for MuleSoft Anypoint Platform. Talk to Anypoint from Claude Code — list apps, fetch logs, inspect queues, search Exchange, and more.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for **MuleSoft Anypoint MQ**. Operate Anypoint MQ from Claude Code — inspect queue depth and stats, triage and redrive dead-letter queues, send/consume messages, and analyze MQ cost. It also surfaces supporting Anypoint reads (app status, logs, monitoring) for MQ incident triage and health scoring.
+
+> Scope today is **Anypoint MQ**. The server keeps the general `anypoint-mcp` name so more Anypoint domains can be added later without reconfiguring clients.
 
 ## Architecture
 

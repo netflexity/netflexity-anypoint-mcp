@@ -15,6 +15,13 @@ spring:
       server:
         name: anypoint-mcp
         version: 1.0.0
+        instructions: >-
+          Netflexity Anypoint MQ MCP. Operate Anypoint MQ from your AI assistant:
+          list destinations, inspect queue depth and stats, browse and redrive
+          dead-letter queues, send/consume messages, and analyze MQ cost. Includes
+          supporting Anypoint reads (application status, logs, and monitoring) used
+          for MQ incident triage and health scoring. Focus is Anypoint MQ today;
+          more Anypoint domains may be added over time.
         transport: SSE
         sse-endpoint: /mcp/sse
         sse-message-endpoint: /mcp/message

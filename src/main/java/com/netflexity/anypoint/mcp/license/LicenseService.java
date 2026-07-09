@@ -59,6 +59,12 @@ public class LicenseService {
         }
     }
 
+    public void requireEnterprise(String apiKey) {
+        if (getTier(apiKey) != LicenseTier.ENTERPRISE) {
+            throw new AccessDeniedException("Enterprise license required");
+        }
+    }
+
     public void checkRateLimit(String apiKey) {
         // For null/blank keys use a shared FREE bucket keyed by "__free__"
         String bucketKey = (apiKey == null || apiKey.isBlank()) ? "__free__" : apiKey;

@@ -9,14 +9,17 @@ public class AnypointRequestContext {
     private final String orgId;
     private final String defaultEnv;
     private final String baseUrl;
+    private final String apiKey;
 
     public AnypointRequestContext(String clientId, String clientSecret,
-                                   String orgId, String defaultEnv, String baseUrl) {
+                                   String orgId, String defaultEnv, String baseUrl,
+                                   String apiKey) {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.orgId = orgId;
         this.defaultEnv = defaultEnv;
         this.baseUrl = baseUrl;
+        this.apiKey = apiKey;
     }
 
     public static AnypointRequestContext fromHeaders(HttpHeaders headers) {
@@ -26,7 +29,8 @@ public class AnypointRequestContext {
                 headers.getFirst("X-Anypoint-Org-Id"),
                 defaultIfBlank(headers.getFirst("X-Anypoint-Env"), "Production"),
                 defaultIfBlank(headers.getFirst("X-Anypoint-Base-Url"),
-                        "https://anypoint.mulesoft.com")
+                        "https://anypoint.mulesoft.com"),
+                headers.getFirst("X-API-Key")
         );
     }
 
@@ -45,4 +49,5 @@ public class AnypointRequestContext {
     public String getOrgId() { return orgId; }
     public String getDefaultEnv() { return defaultEnv; }
     public String getBaseUrl() { return baseUrl; }
+    public String getApiKey() { return apiKey; }
 }

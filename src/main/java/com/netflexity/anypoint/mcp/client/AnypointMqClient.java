@@ -1,6 +1,7 @@
 package com.netflexity.anypoint.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.netflexity.anypoint.mcp.context.AnypointRequestContext;
 import com.netflexity.anypoint.mcp.context.TenantTokenCache;
 import com.netflexity.anypoint.mcp.model.*;
@@ -492,4 +493,203 @@ public class AnypointMqClient extends AnypointBaseClient {
         }
         return destinations;
     }
+
+    // ---- Redrive (replay) messages from a DLQ back to a target destination ----
+    // Client-side consume-then-republish: GET from the DLQ, POST to the target (preserving the
+    // original body + properties), and ACK (remove from DLQ) ONLY after a successful publish.
+    // This is at-least-once and republished messages receive NEW messageIds.
+    public RedriveResult redrive(String envId, String region, String dlqQueue,
+                                 String targetDestination, int maxMessages, boolean dryRun) {
+        String effectiveRegion = (region != null && !region.isBlank()) ? region : DEFAULT_REGION;
+        int cap = Math.min(Math.max(maxMessages, 1), 1000);
+        AnypointRequestContext ctx = context();
+
+        // Guard: redriving a DLQ into itself would multiply messages until the cap.
+        if (targetDestination != null && targetDestination.equals(dlqQueue)) {
+            return RedriveResult.builder()
+                    .dryRun(dryRun).dlqQueue(dlqQueue).targetDestination(targetDestination)
+                    .attempted(0).redriven(0).failed(0).notAcked(0).skipped(0)
+                    .note("Refused: targetDestination equals the DLQ; that would loop and multiply messages.")
+                    .build();
+        }
+
+        String brokerBase = brokerUrl(effectiveRegion)
+                + "/api/v1/organizations/" + ctx.getOrgId()
+                + "/environments/" + envId
+                + "/destinations/" + dlqQueue;
+        String sendUri = ctx.getBaseUrl()
+                + "/mq/api/v1/organizations/" + ctx.getOrgId()
+                + "/environments/" + envId
+                + "/regions/" + effectiveRegion
+                + "/destinations/" + targetDestination + "/messages";
+
+        Set<String> seen = new HashSet<>();
+        int attempted = 0, redriven = 0, failed = 0, notAcked = 0, skipped = 0;
+
+        while (attempted < cap) {
+            // Refresh the token each batch — a long loop can outlive a near-expiry token.
+            String token = bearerToken(ctx).block();
+            int batchSize = Math.min(10, cap - attempted);
+            List<Map<String, Object>> messages = fetchBatch(token, brokerBase, ctx, envId, batchSize);
+            if (messages == null || messages.isEmpty()) break;
+
+            int fresh = 0;
+            for (Map<String, Object> msg : messages) {
+                Map<String, Object> headers = asMap(msg.get("headers"));
+                String msgId = (String) headers.get("messageId");
+                String lockId = (String) headers.get("lockId");
+                String contentType = (String) headers.get("contentType");
+
+                // Without a messageId+lockId we cannot ACK, so publishing would duplicate.
+                // Release and skip so it stays in the DLQ untouched.
+                if (msgId == null || lockId == null) {
+                    releaseLock(token, brokerBase, ctx, envId, msgId, lockId);
+                    skipped++;
+                    continue;
+                }
+                // Skip messages already handled in this call (released failures re-appear
+                // once their lock TTL lapses).
+                if (!seen.add(msgId)) {
+                    releaseLock(token, brokerBase, ctx, envId, msgId, lockId);
+                    continue;
+                }
+                fresh++;
+                attempted++;
+
+                Object bodyObj = msg.get("body");
+                String body = bodyToString(bodyObj);
+                Map<String, Object> props = asMap(msg.get("properties"));
+
+                if (dryRun) {
+                    releaseLock(token, brokerBase, ctx, envId, msgId, lockId);
+                    if (attempted >= cap) break;
+                    continue;
+                }
+                if (publish(token, sendUri, body, contentType, props)) {
+                    if (ackLock(token, brokerBase, ctx, envId, msgId, lockId)) {
+                        redriven++;
+                    } else {
+                        // Published but could not remove from the DLQ: it will re-appear and
+                        // could duplicate on a later run. Report it honestly.
+                        notAcked++;
+                    }
+                } else {
+                    releaseLock(token, brokerBase, ctx, envId, msgId, lockId);
+                    failed++;
+                }
+                if (attempted >= cap) break;
+            }
+            if (fresh == 0) break;
+        }
+
+        String note = dryRun
+                ? "Dry run: inspected " + attempted + " message(s); nothing published or removed."
+                  + (skipped > 0 ? " " + skipped + " skipped (missing message/lock id)." : "")
+                : "Redriven " + redriven + " to " + targetDestination + "; " + failed
+                  + " failed (left in DLQ), " + notAcked + " published-but-not-removed (may duplicate later), "
+                  + skipped + " skipped. At-least-once; republished messages have new messageIds.";
+        return RedriveResult.builder()
+                .dryRun(dryRun)
+                .dlqQueue(dlqQueue)
+                .targetDestination(targetDestination)
+                .attempted(attempted)
+                .redriven(redriven)
+                .failed(failed)
+                .notAcked(notAcked)
+                .skipped(skipped)
+                .note(note)
+                .build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object o) {
+        return o instanceof Map ? (Map<String, Object>) o : new LinkedHashMap<>();
+    }
+
+    // Preserve the original payload faithfully: a JSON object/array body deserializes into a
+    // Map/List, whose toString() is NOT valid JSON, so re-serialize those with Jackson.
+    private String bodyToString(Object bodyObj) {
+        if (bodyObj == null) return "";
+        if (bodyObj instanceof String s) return s;
+        if (bodyObj instanceof Map || bodyObj instanceof List) {
+            try {
+                return MAPPER.writeValueAsString(bodyObj);
+            } catch (Exception e) {
+                return bodyObj.toString();
+            }
+        }
+        return bodyObj.toString();
+    }
+
+    private List<Map<String, Object>> fetchBatch(String token, String brokerBase,
+                                                 AnypointRequestContext ctx, String envId, int batchSize) {
+        return webClient.get()
+                .uri(brokerBase + "/messages?batchSize=" + batchSize + "&pollingTime=1000&lockTtl=30000")
+                .header("Authorization", token)
+                .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                .header("X-ANYPNT-ENV-ID", envId)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                .defaultIfEmpty(List.of())
+                .onErrorReturn(List.of())
+                .block();
+    }
+
+    private boolean publish(String token, String sendUri, String body, String contentType,
+                            Map<String, Object> originalProps) {
+        try {
+            Map<String, Object> props = new LinkedHashMap<>();
+            if (originalProps != null) props.putAll(originalProps);
+            props.put("contentType", (contentType != null && !contentType.isBlank()) ? contentType : "application/json");
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("properties", props);
+            entry.put("body", body);
+            webClient.post()
+                    .uri(sendUri)
+                    .header("Authorization", token)
+                    .bodyValue(List.of(entry))
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean ackLock(String token, String brokerBase, AnypointRequestContext ctx,
+                            String envId, String messageId, String lockId) {
+        if (messageId == null || lockId == null) return false;
+        try {
+            webClient.patch()
+                    .uri(brokerBase + "/messages/{messageId}/locks/{lockId}", messageId, lockId)
+                    .header("Authorization", token)
+                    .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                    .header("X-ANYPNT-ENV-ID", envId)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void releaseLock(String token, String brokerBase, AnypointRequestContext ctx,
+                             String envId, String messageId, String lockId) {
+        if (messageId == null || lockId == null) return;
+        try {
+            webClient.delete()
+                    .uri(brokerBase + "/messages/{messageId}/locks/{lockId}", messageId, lockId)
+                    .header("Authorization", token)
+                    .header("X-ANYPNT-ORG-ID", ctx.getOrgId())
+                    .header("X-ANYPNT-ENV-ID", envId)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 }

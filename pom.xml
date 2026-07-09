@@ -16,8 +16,8 @@
     <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>Anypoint MCP Server</name>
-    <description>MCP server for MuleSoft Anypoint Platform — talk to Anypoint from Claude Code</description>
+    <name>Anypoint MQ MCP Server</name>
+    <description>MCP server for MuleSoft Anypoint MQ — operate Anypoint MQ from Claude Code</description>
     <url>https://github.com/netflexity/netflexity-anypoint-mcp</url>
 
     <properties>
